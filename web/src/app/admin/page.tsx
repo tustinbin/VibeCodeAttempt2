@@ -94,7 +94,8 @@ function AdminContent() {
               Administrator — order history & priority queue
             </h1>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-              Orders sort by predicted fraud first, then risk score, after scoring.
+              After scoring, orders sort by predicted fraud, then by model score (logit). Fraud
+              labels use P(fraud) ≥ 85%, not a 50% “risk percent.”
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -141,7 +142,7 @@ function AdminContent() {
                   <th className="px-3 py-2">When</th>
                   <th className="px-3 py-2">Total</th>
                   <th className="px-3 py-2">Predicted</th>
-                  <th className="px-3 py-2">Risk</th>
+                  <th className="px-3 py-2">Score (logit)</th>
                   <th className="px-3 py-2">Labeled (is_fraud)</th>
                 </tr>
               </thead>

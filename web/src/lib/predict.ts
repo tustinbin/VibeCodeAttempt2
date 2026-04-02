@@ -20,7 +20,8 @@ function sigmoid(z: number): number {
   return 1 / (1 + Math.exp(-z));
 }
 
-export function predictFraudProbability(
+/** Linear score before sigmoid; use for ranking. Do not treat as a calibrated “percent”. */
+export function predictLogit(
   row: OrderFeaturesInput,
   spec: ModelSpec = loadModelSpec()
 ): number {
@@ -36,5 +37,20 @@ export function predictFraudProbability(
       (x[i] - spec.scaler_mean[i]) / (spec.scaler_scale[i] || 1e-9);
     z += spec.coef[i] * scaled;
   }
-  return sigmoid(z);
+  return z;
+}
+
+export function predictLogitAndProbability(
+  row: OrderFeaturesInput,
+  spec: ModelSpec = loadModelSpec()
+): { logit: number; prob: number } {
+  const logit = predictLogit(row, spec);
+  return { logit, prob: sigmoid(logit) };
+}
+
+export function predictFraudProbability(
+  row: OrderFeaturesInput,
+  spec: ModelSpec = loadModelSpec()
+): number {
+  return predictLogitAndProbability(row, spec).prob;
 }

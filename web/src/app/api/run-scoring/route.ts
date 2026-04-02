@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db";
-import { predictFraudProbability } from "@/lib/predict";
+import { FRAUD_PROB_THRESHOLD } from "@/lib/modelSpec";
+import { predictLogitAndProbability } from "@/lib/predict";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,7 @@ export async function POST() {
 
     let updated = 0;
     for (const o of orders) {
-      const prob = predictFraudProbability({
+      const input = {
         order_subtotal: Number(o.order_subtotal),
         shipping_fee: Number(o.shipping_fee),
         tax_amount: Number(o.tax_amount),
@@ -39,13 +40,13 @@ export async function POST() {
         device_type: String(o.device_type),
         ip_country: String(o.ip_country),
         shipping_state: String(o.shipping_state),
-      });
-      const risk = Math.round(prob * 1000) / 10;
-      const predicted = prob >= 0.5 ? 1 : 0;
+      };
+      const { logit, prob } = predictLogitAndProbability(input);
+      const predicted = prob >= FRAUD_PROB_THRESHOLD ? 1 : 0;
       await sql`
         UPDATE orders
         SET predicted_is_fraud = ${predicted},
-            risk_score = ${risk}
+            risk_score = ${logit}
         WHERE order_id = ${o.order_id}
       `;
       updated += 1;

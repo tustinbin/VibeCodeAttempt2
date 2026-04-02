@@ -80,6 +80,7 @@ export async function POST(req: Request) {
 
     const promo_used = b.promo_used ? 1 : 0;
     const promo_code = b.promo_code?.trim() || null;
+    const order_datetime = new Date().toISOString();
 
     // postgres TransactionSql typings omit the tagged-template call signature; runtime is correct.
     const result = await sql.begin(async (tx) => {
@@ -87,6 +88,7 @@ export async function POST(req: Request) {
       const [order] = await txn`
         INSERT INTO orders (
           customer_id,
+          order_datetime,
           billing_zip,
           shipping_zip,
           shipping_state,
@@ -104,6 +106,7 @@ export async function POST(req: Request) {
           predicted_is_fraud
         ) VALUES (
           ${b.customer_id},
+          ${order_datetime},
           ${b.billing_zip},
           ${b.shipping_zip},
           ${b.shipping_state},

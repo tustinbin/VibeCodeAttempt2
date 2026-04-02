@@ -10,7 +10,7 @@ type Customer = {
   full_name: string;
   email: string;
   city: string | null;
-  state: string | null;
+  zip_code: string | null;
 };
 
 export default function SelectCustomerPage() {
@@ -70,9 +70,9 @@ export default function SelectCustomerPage() {
                     {c.full_name}
                   </p>
                   <p className="text-xs text-zinc-500">{c.email}</p>
-                  {(c.city || c.state) && (
+                  {(c.city || c.zip_code) && (
                     <p className="text-xs text-zinc-500">
-                      {[c.city, c.state].filter(Boolean).join(", ")}
+                      {[c.city, c.zip_code].filter(Boolean).join(" ")}
                     </p>
                   )}
                 </div>

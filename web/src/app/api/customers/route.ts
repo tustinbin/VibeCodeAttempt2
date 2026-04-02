@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const sql = getSql();
     const rows = await sql`
-      SELECT customer_id, full_name, email, city, state
+      SELECT customer_id, full_name, email, city, zip_code
       FROM customers
       ORDER BY full_name ASC
     `;
