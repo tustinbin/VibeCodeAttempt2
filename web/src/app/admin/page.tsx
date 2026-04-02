@@ -22,7 +22,6 @@ type OrderRow = {
   shipping_fee: number;
   tax_amount: number;
   order_total: number;
-  risk_score: number | null;
   is_fraud: number;
   predicted_is_fraud: number | null;
 };
@@ -63,7 +62,7 @@ function AdminContent() {
   useEffect(() => {
     const placed = params.get("placed");
     if (placed) {
-      setBanner(`Order #${placed} was created. Run scoring to refresh risk.`);
+      setBanner(`Order #${placed} was created. Run scoring to refresh predictions.`);
     }
   }, [params]);
 
@@ -75,7 +74,9 @@ function AdminContent() {
       const res = await fetch("/api/run-scoring", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Scoring failed");
-      setBanner(`Scored ${data.orders_scored} orders. Priority queue updated.`);
+      setBanner(
+        `Scored ${data.orders_scored} orders — sklearn P(fraud) ≥ ${data.decision_threshold ?? "?"} → ${data.predicted_fraud_count ?? "?"} predicted fraud.`
+      );
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scoring failed");
@@ -94,8 +95,12 @@ function AdminContent() {
               Administrator — order history & priority queue
             </h1>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-              After scoring, orders sort by predicted fraud, then by model score (logit). Fraud
-              labels use P(fraud) ≥ 85%, not a 50% “risk percent.”
+              <strong>Predicted</strong> uses the trained logistic model in{" "}
+              <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">model.json</code> (same pipeline as{" "}
+              <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">fraud_pipeline.ipynb</code>
+              ): StandardScaler + balanced logistic regression, with a validation-tuned probability
+              threshold. <strong>Dataset label</strong> is ground truth from <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">shop.db</code>.
+              Sort: predicted fraud first, then newest.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -141,9 +146,8 @@ function AdminContent() {
                   <th className="px-3 py-2">Customer</th>
                   <th className="px-3 py-2">When</th>
                   <th className="px-3 py-2">Total</th>
-                  <th className="px-3 py-2">Predicted</th>
-                  <th className="px-3 py-2">Score (logit)</th>
-                  <th className="px-3 py-2">Labeled (is_fraud)</th>
+                  <th className="px-3 py-2">Predicted (model)</th>
+                  <th className="px-3 py-2">Dataset label (is_fraud)</th>
                 </tr>
               </thead>
               <tbody>
@@ -166,11 +170,6 @@ function AdminContent() {
                         : o.predicted_is_fraud === 1
                           ? "fraud"
                           : "ok"}
-                    </td>
-                    <td className="px-3 py-2">
-                      {o.risk_score != null
-                        ? Number(o.risk_score).toFixed(1)
-                        : "—"}
                     </td>
                     <td className="px-3 py-2">
                       {o.is_fraud === 1 ? "fraud" : "ok"}

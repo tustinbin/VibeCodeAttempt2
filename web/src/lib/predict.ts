@@ -14,6 +14,11 @@ export function loadModelSpec(): ModelSpec {
   return cached;
 }
 
+/** P(fraud) threshold from training; fallback 0.5 only for legacy model.json without the field. */
+export function fraudDecisionThreshold(spec: ModelSpec = loadModelSpec()): number {
+  return spec.decision_threshold ?? 0.5;
+}
+
 function sigmoid(z: number): number {
   if (z > 30) return 1;
   if (z < -30) return 0;

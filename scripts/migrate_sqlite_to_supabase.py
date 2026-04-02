@@ -61,13 +61,12 @@ CREATE TABLE IF NOT EXISTS orders (
   ip_country TEXT NOT NULL,
   promo_used INTEGER NOT NULL DEFAULT 0,
   promo_code TEXT,
-  order_subtotal DOUBLE PRECISION NOT NULL,
-  shipping_fee DOUBLE PRECISION NOT NULL,
-  tax_amount DOUBLE PRECISION NOT NULL,
-  order_total DOUBLE PRECISION NOT NULL,
-  risk_score DOUBLE PRECISION NOT NULL,
-  is_fraud INTEGER NOT NULL DEFAULT 0,
-  predicted_is_fraud INTEGER
+      order_subtotal DOUBLE PRECISION NOT NULL,
+      shipping_fee DOUBLE PRECISION NOT NULL,
+      tax_amount DOUBLE PRECISION NOT NULL,
+      order_total DOUBLE PRECISION NOT NULL,
+      is_fraud INTEGER NOT NULL DEFAULT 0,
+      predicted_is_fraud INTEGER
 )
 """,
     """
@@ -105,6 +104,9 @@ CREATE TABLE IF NOT EXISTS shipments (
 )
 """,
 ]
+
+# Remove legacy column if DB was created with an older migration.
+ALTER_DROP_RISK_SCORE = "ALTER TABLE orders DROP COLUMN IF EXISTS risk_score"
 
 INDEX_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id)",
@@ -170,6 +172,7 @@ def main() -> None:
     )
     for stmt in INDEX_STATEMENTS:
         cur.execute(stmt)
+    cur.execute(ALTER_DROP_RISK_SCORE)
 
     log("Clearing existing rows (DELETE, no DROP)...")
     for stmt in DELETE_STATEMENTS:
@@ -213,7 +216,14 @@ def main() -> None:
     pg.commit()
 
     log("Loading orders...")
-    rows = lite.execute("SELECT * FROM orders ORDER BY order_id").fetchall()
+    rows = lite.execute(
+        """
+        SELECT order_id, customer_id, order_datetime, billing_zip, shipping_zip,
+               shipping_state, payment_method, device_type, ip_country, promo_used,
+               promo_code, order_subtotal, shipping_fee, tax_amount, order_total, is_fraud
+        FROM orders ORDER BY order_id
+        """
+    ).fetchall()
     batch_insert(
         cur,
         """
@@ -221,7 +231,7 @@ def main() -> None:
           order_id, customer_id, order_datetime, billing_zip, shipping_zip,
           shipping_state, payment_method, device_type, ip_country, promo_used,
           promo_code, order_subtotal, shipping_fee, tax_amount, order_total,
-          risk_score, is_fraud, predicted_is_fraud
+          is_fraud, predicted_is_fraud
         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL)
         """,
         [tuple(r) for r in rows],

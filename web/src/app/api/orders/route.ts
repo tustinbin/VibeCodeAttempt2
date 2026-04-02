@@ -101,7 +101,6 @@ export async function POST(req: Request) {
           shipping_fee,
           tax_amount,
           order_total,
-          risk_score,
           is_fraud,
           predicted_is_fraud
         ) VALUES (
@@ -119,7 +118,6 @@ export async function POST(req: Request) {
           ${shipping_fee},
           ${tax_amount},
           ${order_total},
-          NULL,
           0,
           NULL
         )

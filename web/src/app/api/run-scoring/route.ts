@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 
 import { getSql } from "@/lib/db";
-import { FRAUD_PROB_THRESHOLD } from "@/lib/modelSpec";
-import { predictLogitAndProbability } from "@/lib/predict";
+import { fraudDecisionThreshold, loadModelSpec, predictLogitAndProbability } from "@/lib/predict";
 
 export const runtime = "nodejs";
 
 export async function POST() {
   try {
     const sql = getSql();
+    const spec = loadModelSpec();
+    const threshold = fraudDecisionThreshold(spec);
+
     const orders = await sql`
       SELECT
         order_id,
@@ -27,6 +29,7 @@ export async function POST() {
     `;
 
     let updated = 0;
+    let predictedFraud = 0;
     for (const o of orders) {
       const input = {
         order_subtotal: Number(o.order_subtotal),
@@ -41,18 +44,24 @@ export async function POST() {
         ip_country: String(o.ip_country),
         shipping_state: String(o.shipping_state),
       };
-      const { logit, prob } = predictLogitAndProbability(input);
-      const predicted = prob >= FRAUD_PROB_THRESHOLD ? 1 : 0;
+      const { prob } = predictLogitAndProbability(input, spec);
+      const predicted = prob >= threshold ? 1 : 0;
+      if (predicted === 1) predictedFraud += 1;
       await sql`
         UPDATE orders
-        SET predicted_is_fraud = ${predicted},
-            risk_score = ${logit}
+        SET predicted_is_fraud = ${predicted}
         WHERE order_id = ${o.order_id}
       `;
       updated += 1;
     }
 
-    return NextResponse.json({ ok: true, orders_scored: updated });
+    return NextResponse.json({
+      ok: true,
+      orders_scored: updated,
+      model_type: spec.model_type ?? "logistic_regression",
+      decision_threshold: threshold,
+      predicted_fraud_count: predictedFraud,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Scoring failed";
     return NextResponse.json({ error: message }, { status: 500 });

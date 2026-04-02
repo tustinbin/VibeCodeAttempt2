@@ -24,14 +24,12 @@ export async function GET() {
         o.shipping_fee,
         o.tax_amount,
         o.order_total,
-        o.risk_score,
         o.is_fraud,
         o.predicted_is_fraud
       FROM orders o
       JOIN customers c ON c.customer_id = o.customer_id
       ORDER BY
         o.predicted_is_fraud DESC NULLS LAST,
-        o.risk_score DESC NULLS LAST,
         o.order_datetime DESC
     `;
     return NextResponse.json(rows);

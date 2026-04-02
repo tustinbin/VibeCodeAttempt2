@@ -15,7 +15,7 @@ export type OrderFeaturesInput = {
 };
 
 /**
- * Must match scripts/train_export_model.py featurize()
+ * Must match `featurize()` in scripts/train_export_model.py and fraud_pipeline.ipynb.
  */
 export function featurizeOrderRow(
   row: OrderFeaturesInput,
