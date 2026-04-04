@@ -12,9 +12,10 @@ This repository is a **course deployment project** (IS 455, Chapter 17): a **Nex
 | **`shop.db`** | SQLite **source of truth** for the assignment dataset (customers, orders, products, etc.). |
 | **`web/`** | **Next.js 16** app: customer selection, place order, admin order history, **Run scoring** (ML inference). Deployed to **Vercel**; reads **`DATABASE_URL`** (or embedded fallback in `web/src/lib/db.ts`). |
 | **`fraud_pipeline.ipynb`** | Jupyter notebook: EDA, **same featurization** as training script, **sklearn** `Pipeline(StandardScaler + LogisticRegression)` and **RandomForest**, evaluation, optional `joblib` saves. |
-| **`scripts/train_export_model.py`** | Trains on `shop.db`, exports **`web/public/model.json`** (for Node) and **`models/fraud_model.sav`** / **`models/fraud_model_rf.sav`** (for Python). |
+| **`scripts/train_export_model.py`** | Trains on **`shop.db`** or, if **`DATABASE_URL`** is set, on Postgres **`orders`**; exports **`web/public/model.json`** and **`models/*.sav`**. |
 | **`scripts/migrate_sqlite_to_supabase.py`** | One-shot tool to load `shop.db` into Postgres (used when seeding Supabase). |
-| **`requirements-ml.txt`** | Python deps for training (`numpy`, `pandas`, `scikit-learn`). |
+| **`requirements-ml.txt`** | Python deps for training (`numpy`, `pandas`, `scikit-learn`, `psycopg2-binary` for optional Postgres training). |
+| **`.github/workflows/retrain.yml`** | Optional **nightly** retrain; commits **`web/public/model.json`** when it changes (see below). |
 | **`models/`** | Created when you run the training script; holds **`.sav`** joblib dumps. |
 
 ---
@@ -25,7 +26,7 @@ This repository is a **course deployment project** (IS 455, Chapter 17): a **Nex
 - **Database:** Postgres via the `postgres` package; use the **Supabase transaction pooler** URI (port **6543**) on Vercel so serverless works with PgBouncer (`prepare: false` in `db.ts`).
 - **Main flows**
   - **Select customer** → **Place order** (writes to `orders` / `order_items`).
-  - **Admin** → lists orders with **dataset label** `is_fraud` (from imported data) and **model prediction** `predicted_is_fraud` after scoring.
+  - **Admin** → lists orders with **dataset label** `is_fraud` (editable via **Set label**) and **model prediction** `predicted_is_fraud` after scoring.
   - **Run scoring** → `POST /api/run-scoring` loads `public/model.json`, scores each order, updates `predicted_is_fraud`.
 
 Copy **`web/.env.example`** to **`web/.env.local`** and set `DATABASE_URL` if you do not rely on the embedded default in `db.ts`.
@@ -59,10 +60,17 @@ python scripts/train_export_model.py
 
 This script:
 
-1. Fits the **same logistic pipeline** as the notebook (scaler + balanced logistic).
-2. Picks a **`decision_threshold`** on a validation split (F1 search over probability).
-3. Writes **`web/public/model.json`** — scaler means/scales, coefficients, intercept, threshold, and metadata.
-4. Writes **`models/fraud_model.sav`** (logistic pipeline) and **`models/fraud_model_rf.sav`** (forest).
+1. Loads **`orders`** from **`DATABASE_URL`** (Postgres) when that env var is set; otherwise from **`shop.db`**.
+2. Fits the **same logistic pipeline** as the notebook (scaler + balanced logistic).
+3. Picks a **`decision_threshold`** on a validation split (F1 search over probability).
+4. Writes **`web/public/model.json`** — scaler means/scales, coefficients, intercept, threshold, and metadata (including **`shipping_states`** order for TS featurization).
+5. Writes **`models/fraud_model.sav`** (logistic pipeline) and **`models/fraud_model_rf.sav`** (forest).
+
+### Nightly retrain (GitHub Actions)
+
+Workflow **`.github/workflows/retrain.yml`** runs on a schedule (1:00 UTC) or **workflow_dispatch**. It installs **`requirements-ml.txt`**, runs **`scripts/train_export_model.py`**, and commits **`web/public/model.json`** if it changed. The job sets **`DATABASE_URL`** from the repository secret **`SUPABASE_DATABASE_URL`**; if the secret is unset, training falls back to **`shop.db`** in the checkout. You need **`permissions: contents: write`** (already in the workflow); **branch protection** on `main` may block the push unless you allow GitHub Actions or use a PAT.
+
+**Featurization:** Node must use categorical lists from **`model.json`** only (`web/src/lib/featurize.ts` + **`ModelSpec`**), not hard-coded state lists, or coefficients will misalign.
 
 ### 3. Why both `model.json` and `.sav`?
 
@@ -75,13 +83,15 @@ The TypeScript featurization must stay **byte-for-byte aligned** with `train_exp
 
 ## Database seeding (SQLite → Supabase)
 
-If Postgres is empty or you need to reset from `shop.db`:
+If Postgres is empty or you need a **full reset** from `shop.db`:
 
 ```bash
 python scripts/migrate_sqlite_to_supabase.py
 ```
 
 (Requires `psycopg2-binary` and a valid `DATABASE_URL` in that script or via env.)
+
+**Destructive reset:** This migration **deletes** existing rows in the target tables and reloads from SQLite. **Manual `is_fraud` labels** (or any orders that exist only in Supabase) are **lost**. Treat it as a **one-time seed** or rare reset, not a daily sync. To keep labels long term, either **stop re-running** the migration after go-live or **merge labels back into `shop.db`** / redesign the script (upsert-only) as a team.
 
 ---
 
@@ -93,13 +103,14 @@ python scripts/migrate_sqlite_to_supabase.py
 | `GET /api/products` | Products for cart. |
 | `POST /api/orders` | Create order + line items. |
 | `GET /api/admin/orders` | Admin table data. |
-| `POST /api/run-scoring` | Batch score all orders; updates `predicted_is_fraud`. |
+| `POST /api/admin/label-fraud` | Body: `order_id`, `is_fraud` (0 or 1); updates ground truth in Postgres. |
+| `POST /api/run-scoring` | Batch score **all** orders (no `fulfilled` column in schema); updates `predicted_is_fraud`. |
 
 ---
 
 ## Important: “Dataset label” vs “Predicted (model)”
 
-- **`is_fraud`** in the database comes from **`shop.db`** — it is the **ground truth column** in the class dataset, not the live model.
+- **`is_fraud`** is seeded from **`shop.db`** on migration and can be **updated in the admin UI** (Postgres). It is **ground truth** for training/evaluation, not the model output.
 - **`predicted_is_fraud`** is whatever **`model.json`** produces after **Run scoring**.
 
 Do not confuse the two when judging whether the model “works.”

@@ -12,10 +12,14 @@ Train fraud models to match fraud_pipeline.ipynb, export artifacts:
 Run from repo root:
   pip install -r requirements-ml.txt
   python scripts/train_export_model.py
+
+If DATABASE_URL is set (e.g. Supabase Postgres), training reads orders from Postgres;
+otherwise it uses shop.db at the repo root.
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -84,14 +88,36 @@ def best_f1_threshold(y_true: np.ndarray, proba: np.ndarray) -> tuple[float, flo
     return best_t, best_f1
 
 
-def main() -> None:
+def load_orders() -> pd.DataFrame:
+    """Prefer Postgres when DATABASE_URL is set (e.g. GitHub Actions + Supabase); else shop.db."""
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if db_url:
+        import psycopg2
+
+        print("Training data: PostgreSQL (DATABASE_URL)")
+        conn = psycopg2.connect(db_url)
+        try:
+            return pd.read_sql_query("SELECT * FROM orders", conn)
+        finally:
+            conn.close()
+
     if not DB_PATH.is_file():
-        print(f"ERROR: {DB_PATH} not found", file=sys.stderr)
+        print(
+            f"ERROR: {DB_PATH} not found and DATABASE_URL is not set",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    con = __import__("sqlite3").connect(str(DB_PATH))
-    orders = pd.read_sql_query("SELECT * FROM orders", con)
-    con.close()
+    print("Training data: SQLite (shop.db)")
+    lite = __import__("sqlite3").connect(str(DB_PATH))
+    try:
+        return pd.read_sql_query("SELECT * FROM orders", lite)
+    finally:
+        lite.close()
+
+
+def main() -> None:
+    orders = load_orders()
 
     states = sorted(orders["shipping_state"].dropna().astype(str).unique().tolist())
     X, feature_names = featurize(orders, states)

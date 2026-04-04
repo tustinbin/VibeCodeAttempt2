@@ -32,6 +32,7 @@ function AdminContent() {
   const [loading, setLoading] = useState(true);
   const [scoring, setScoring] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [labelingOrderId, setLabelingOrderId] = useState<number | null>(null);
   const params = useSearchParams();
 
   const load = useCallback(async () => {
@@ -85,6 +86,29 @@ function AdminContent() {
     }
   }
 
+  async function setGroundTruthLabel(orderId: number, isFraud: 0 | 1) {
+    setLabelingOrderId(orderId);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/label-fraud", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: orderId, is_fraud: isFraud }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update label");
+      setRows((prev) =>
+        prev.map((r) =>
+          r.order_id === orderId ? { ...r, is_fraud: data.is_fraud } : r
+        )
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Label update failed");
+    } finally {
+      setLabelingOrderId(null);
+    }
+  }
+
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-50 dark:bg-zinc-950">
       <SiteNav />
@@ -99,8 +123,9 @@ function AdminContent() {
               <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">model.json</code> (same pipeline as{" "}
               <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">fraud_pipeline.ipynb</code>
               ): StandardScaler + balanced logistic regression, with a validation-tuned probability
-              threshold. <strong>Dataset label</strong> is ground truth from <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">shop.db</code>.
-              Sort: predicted fraud first, then newest.
+              threshold. <strong>Dataset label</strong> is ground truth (seeded from{" "}
+              <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">shop.db</code>); use{" "}
+              <strong>Set label</strong> to correct rows in Postgres for retraining. Sort: predicted fraud first, then newest.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -148,6 +173,7 @@ function AdminContent() {
                   <th className="px-3 py-2">Total</th>
                   <th className="px-3 py-2">Predicted (model)</th>
                   <th className="px-3 py-2">Dataset label (is_fraud)</th>
+                  <th className="px-3 py-2">Set label</th>
                 </tr>
               </thead>
               <tbody>
@@ -173,6 +199,31 @@ function AdminContent() {
                     </td>
                     <td className="px-3 py-2">
                       {o.is_fraud === 1 ? "fraud" : "ok"}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {o.is_fraud === 1 ? (
+                        <button
+                          type="button"
+                          disabled={labelingOrderId !== null}
+                          onClick={() => setGroundTruthLabel(o.order_id, 0)}
+                          className="rounded border border-zinc-300 px-2 py-1 text-[11px] font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+                        >
+                          {labelingOrderId === o.order_id
+                            ? "Saving…"
+                            : "Mark not fraud"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={labelingOrderId !== null}
+                          onClick={() => setGroundTruthLabel(o.order_id, 1)}
+                          className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-950/60"
+                        >
+                          {labelingOrderId === o.order_id
+                            ? "Saving…"
+                            : "Mark fraud"}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

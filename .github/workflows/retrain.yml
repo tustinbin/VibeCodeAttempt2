@@ -1,0 +1,43 @@
+# Nightly retrain: optional Postgres via secret, else trains on shop.db in the repo.
+# Add repository secret SUPABASE_DATABASE_URL (pooler URI is fine) to train from live data.
+# Requires contents: write; branch protection may block pushes unless adjusted.
+
+name: Nightly model retrain
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ML dependencies
+        run: pip install -r requirements-ml.txt
+
+      - name: Train and write web/public/model.json
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: python scripts/train_export_model.py
+
+      - name: Commit model.json if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/public/model.json
+          if git diff --staged --quiet; then
+            echo "No changes to model.json"
+          else
+            git commit -m "chore: nightly model.json retrain"
+            git push
+          fi
