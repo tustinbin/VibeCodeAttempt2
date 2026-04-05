@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { SiteNav } from "@/components/SiteNav";
 
@@ -26,6 +26,62 @@ type OrderRow = {
   predicted_is_fraud: number | null;
 };
 
+type SortKey =
+  | "order_id"
+  | "customer_name"
+  | "order_datetime"
+  | "order_total"
+  | "predicted_is_fraud"
+  | "is_fraud"
+  | "label_action";
+
+function labelActionSortText(o: OrderRow): string {
+  return o.is_fraud === 1 ? "Mark not fraud" : "Mark fraud";
+}
+
+function compareOrderRows(
+  a: OrderRow,
+  b: OrderRow,
+  key: SortKey,
+  dir: "asc" | "desc"
+): number {
+  const m = dir === "asc" ? 1 : -1;
+  switch (key) {
+    case "order_id":
+      return (a.order_id - b.order_id) * m;
+    case "customer_name":
+      return (
+        a.customer_name.localeCompare(b.customer_name, undefined, {
+          sensitivity: "base",
+        }) * m
+      );
+    case "order_datetime":
+      return (
+        (new Date(a.order_datetime).getTime() -
+          new Date(b.order_datetime).getTime()) *
+        m
+      );
+    case "order_total":
+      return (Number(a.order_total) - Number(b.order_total)) * m;
+    case "predicted_is_fraud": {
+      const pa = a.predicted_is_fraud;
+      const pb = b.predicted_is_fraud;
+      if (pa === null && pb === null) return 0;
+      if (pa === null) return 1;
+      if (pb === null) return -1;
+      return (pa - pb) * m;
+    }
+    case "is_fraud":
+      return (a.is_fraud - b.is_fraud) * m;
+    case "label_action":
+      return (
+        labelActionSortText(a).localeCompare(labelActionSortText(b), undefined, {
+          sensitivity: "base",
+        }) * m
+      );
+  }
+}
+
 function AdminContent() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +89,25 @@ function AdminContent() {
   const [scoring, setScoring] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const [labelingOrderId, setLabelingOrderId] = useState<number | null>(null);
+  const [sort, setSort] = useState<{
+    key: SortKey | null;
+    dir: "asc" | "desc";
+  }>({ key: null, dir: "asc" });
   const params = useSearchParams();
+
+  const sortedRows = useMemo(() => {
+    const key = sort.key;
+    if (key === null) return rows;
+    return [...rows].sort((a, b) => compareOrderRows(a, b, key, sort.dir));
+  }, [rows, sort.key, sort.dir]);
+
+  function toggleSort(key: SortKey) {
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" }
+    );
+  }
 
   const load = useCallback(async () => {
     setError(null);
@@ -125,7 +199,8 @@ function AdminContent() {
               ): StandardScaler + balanced logistic regression, with a validation-tuned probability
               threshold. <strong>Dataset label</strong> is ground truth (seeded from{" "}
               <code className="rounded bg-zinc-200 px-1 dark:bg-zinc-800">shop.db</code>); use{" "}
-              <strong>Set label</strong> to correct rows in Postgres for retraining. Sort: predicted fraud first, then newest.
+              <strong>Set label</strong> to correct rows in Postgres for retraining. Rows load from the server
+              (predicted fraud first, then newest); use column headers to sort in the browser.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -167,17 +242,44 @@ function AdminContent() {
             <table className="min-w-full text-left text-xs text-zinc-800 dark:text-zinc-200">
               <thead className="bg-zinc-100 text-[11px] uppercase tracking-wide text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                 <tr>
-                  <th className="px-3 py-2">Order</th>
-                  <th className="px-3 py-2">Customer</th>
-                  <th className="px-3 py-2">When</th>
-                  <th className="px-3 py-2">Total</th>
-                  <th className="px-3 py-2">Predicted (model)</th>
-                  <th className="px-3 py-2">Dataset label (is_fraud)</th>
-                  <th className="px-3 py-2">Set label</th>
+                  {(
+                    [
+                      ["order_id", "Order"],
+                      ["customer_name", "Customer"],
+                      ["order_datetime", "When"],
+                      ["order_total", "Total"],
+                      ["predicted_is_fraud", "Predicted (model)"],
+                      ["is_fraud", "Dataset label (is_fraud)"],
+                      ["label_action", "Set label"],
+                    ] as const
+                  ).map(([col, label]) => {
+                    const active = sort.key === col;
+                    const ariaSort = !active
+                      ? "none"
+                      : sort.dir === "asc"
+                        ? "ascending"
+                        : "descending";
+                    return (
+                      <th key={col} className="px-3 py-2" aria-sort={ariaSort}>
+                        <button
+                          type="button"
+                          onClick={() => toggleSort(col)}
+                          className="inline-flex w-full items-center gap-1 text-left font-semibold uppercase tracking-wide text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                        >
+                          <span>{label}</span>
+                          {active && (
+                            <span aria-hidden className="font-normal normal-case">
+                              {sort.dir === "asc" ? "↑" : "↓"}
+                            </span>
+                          )}
+                        </button>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((o) => (
+                {sortedRows.map((o) => (
                   <tr
                     key={o.order_id}
                     className="border-t border-zinc-200 dark:border-zinc-800"
