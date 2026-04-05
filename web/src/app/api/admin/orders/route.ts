@@ -29,7 +29,6 @@ export async function GET() {
       FROM orders o
       JOIN customers c ON c.customer_id = o.customer_id
       ORDER BY
-        o.predicted_is_fraud DESC NULLS LAST,
         o.order_datetime DESC
     `;
     return NextResponse.json(rows);
